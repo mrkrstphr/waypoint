@@ -1,2 +1,4 @@
-[project]
-project_id = "placeholder"
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
