@@ -1,16 +1,7 @@
-# React + Vite
+# Waypoint
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A mobile-first notebook app for writers. Capture story ideas, scenes, character drafts, reminders, and more — wherever inspiration strikes — then develop them when you're back at your desk.
 
-Currently, two official plugins are available:
+Each story gets its own notebook. Notes are tagged by type (Idea, Scene, Character, Setting, Research, Reminder) and collected in one place, so nothing gets lost between the moment of inspiration and the moment you sit down to write.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+**[Open Waypoint →](https://mrkrstphr.github.io/waypoint)**
