@@ -20,5 +20,11 @@ create table if not exists notes (
 alter table stories enable row level security;
 alter table notes enable row level security;
 
-create policy if not exists "Users manage own stories" on stories for all using (auth.uid() = user_id);
-create policy if not exists "Users manage own notes" on notes for all using (auth.uid() = user_id);
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'stories' and policyname = 'Users manage own stories') then
+    create policy "Users manage own stories" on stories for all using (auth.uid() = user_id);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'notes' and policyname = 'Users manage own notes') then
+    create policy "Users manage own notes" on notes for all using (auth.uid() = user_id);
+  end if;
+end $$;
