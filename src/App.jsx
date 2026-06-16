@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Routes, Route, useNavigate, useParams, Navigate } from "react-router-dom";
 import { supabase } from "./supabase";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -53,7 +54,6 @@ const css = `
   .auth-btn:disabled { opacity: .5; cursor: default; }
   .auth-toggle { margin-top: 16px; text-align: center; font-size: 13px; color: var(--muted); }
   .auth-toggle span { color: var(--accent); cursor: pointer; }
-  .auth-toggle span:hover { color: var(--accent-hi); }
   .auth-error { font-size: 13px; color: #E05555; margin-top: 8px; text-align: center; }
 
   /* Header */
@@ -136,7 +136,6 @@ const css = `
   .modal-confirm:hover { background: var(--accent-hi); }
   .modal-confirm:disabled { opacity: .4; cursor: default; }
 
-  /* Loading */
   .loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 
   @media (min-width: 480px) {
@@ -147,7 +146,7 @@ const css = `
 
 // ── Auth Screen ───────────────────────────────────────────────────────────────
 function AuthScreen() {
-  const [mode, setMode] = useState("login"); // login | signup
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -176,306 +175,327 @@ function AuthScreen() {
       <div className="auth-card">
         <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
         <input className="auth-input" type="email" placeholder="Email" value={email}
-          onChange={e => setEmail(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+          onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
         <input className="auth-input" type="password" placeholder="Password" value={password}
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+          onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
         {error && <div className="auth-error">{error}</div>}
         {message && <div style={{ fontSize: 13, color: "#4A7C6F", marginTop: 8, textAlign: "center" }}>{message}</div>}
         <button className="auth-btn" onClick={handleSubmit} disabled={loading}>
           {loading ? "…" : mode === "login" ? "Sign in" : "Create account"}
         </button>
         <div className="auth-toggle">
-          {mode === "login" ? <>No account? <span onClick={() => { setMode("signup"); setError(""); }}>Sign up</span></> : <>Have an account? <span onClick={() => { setMode("login"); setError(""); }}>Sign in</span></>}
+          {mode === "login"
+            ? <>No account? <span onClick={() => { setMode("signup"); setError(""); }}>Sign up</span></>
+            : <>Have an account? <span onClick={() => { setMode("login"); setError(""); }}>Sign in</span></>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
-export default function App() {
-  const [session, setSession] = useState(undefined); // undefined = loading
+// ── Data hook ─────────────────────────────────────────────────────────────────
+function useData(session) {
   const [stories, setStories] = useState([]);
   const [notes, setNotes] = useState([]);
-  const [view, setView] = useState("dashboard");
-  const [activeStoryId, setActiveStoryId] = useState(null);
-  const [activeNoteId, setActiveNoteId] = useState(null);
-  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    if (!session) return;
+    supabase.from("stories").select("*").order("created_at", { ascending: false })
+      .then(({ data }) => data && setStories(data));
+    supabase.from("notes").select("*").order("updated_at", { ascending: false })
+      .then(({ data }) => data && setNotes(data));
+  }, [session]);
+
+  async function createStory(name, userId) {
+    const { data } = await supabase.from("stories").insert({ name: name.trim(), user_id: userId }).select().single();
+    if (data) setStories(prev => [data, ...prev]);
+    return data;
+  }
+
+  async function saveNote({ id, storyId, title, body, type, userId }) {
+    const now = new Date().toISOString();
+    if (id) {
+      const { data } = await supabase.from("notes").update({ title, body, type, updated_at: now }).eq("id", id).select().single();
+      if (data) setNotes(prev => prev.map(n => n.id === id ? data : n));
+      return data;
+    } else {
+      const { data } = await supabase.from("notes").insert({ story_id: storyId, title, body, type, user_id: userId }).select().single();
+      if (data) setNotes(prev => [data, ...prev]);
+      return data;
+    }
+  }
+
+  async function deleteNote(id) {
+    await supabase.from("notes").delete().eq("id", id);
+    setNotes(prev => prev.filter(n => n.id !== id));
+  }
+
+  return { stories, notes, createStory, saveNote, deleteNote };
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function Dashboard({ session, stories, notes, createStory }) {
+  const navigate = useNavigate();
   const [showNewStory, setShowNewStory] = useState(false);
   const [newStoryName, setNewStoryName] = useState("");
-  const [editorTitle, setEditorTitle] = useState("");
-  const [editorBody, setEditorBody] = useState("");
-  const [editorType, setEditorType] = useState("idea");
-  const [editorStoryId, setEditorStoryId] = useState(null);
+
+  const storyNoteCounts = Object.fromEntries(stories.map(s => [s.id, notes.filter(n => n.story_id === s.id).length]));
+
+  async function handleCreate() {
+    if (!newStoryName.trim()) return;
+    const story = await createStory(newStoryName, session.user.id);
+    setNewStoryName(""); setShowNewStory(false);
+    if (story) navigate(`/story/${story.id}`);
+  }
+
+  return (
+    <>
+      <div className="header">
+        <div>
+          <div className="header-title">Waypoint</div>
+          <div className="header-subtitle">{stories.length === 0 ? "Your stories start here" : `${stories.length} notebook${stories.length !== 1 ? "s" : ""}`}</div>
+        </div>
+        <div className="header-actions">
+          <button className="header-action ghost" onClick={() => navigate("/capture")}>+ Quick note</button>
+          <button className="header-action" onClick={() => setShowNewStory(true)}>New story</button>
+          <button className="header-action ghost" style={{ padding: "8px 10px" }} title="Sign out" onClick={() => supabase.auth.signOut()}>↩</button>
+        </div>
+      </div>
+
+      {stories.length === 0 ? (
+        <div className="dashboard-empty">
+          <div className="dashboard-empty-icon">📓</div>
+          <h2>No notebooks yet</h2>
+          <p>Create a story to start collecting ideas, scenes, characters, and more.</p>
+          <button className="header-action" style={{ marginTop: 8 }} onClick={() => setShowNewStory(true)}>Create your first story</button>
+        </div>
+      ) : (
+        <div className="stories-grid">
+          {stories.map(story => {
+            const lastNote = notes.filter(n => n.story_id === story.id).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
+            return (
+              <div key={story.id} className="story-card" onClick={() => navigate(`/story/${story.id}`)}>
+                <div className="story-card-title">{story.name}</div>
+                <div className="story-card-meta">
+                  <span className="story-card-count">{storyNoteCounts[story.id] || 0} note{storyNoteCounts[story.id] !== 1 ? "s" : ""}</span>
+                  {lastNote && <span>{timeAgo(lastNote.updated_at)}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showNewStory && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowNewStory(false); }}>
+          <div className="modal">
+            <h2>New story</h2>
+            <input className="modal-input" placeholder="Give it a working title…" value={newStoryName} autoFocus
+              onChange={e => setNewStoryName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setShowNewStory(false); }} />
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => { setShowNewStory(false); setNewStoryName(""); }}>Cancel</button>
+              <button className="modal-confirm" disabled={!newStoryName.trim()} onClick={handleCreate}>Create notebook</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Notebook ──────────────────────────────────────────────────────────────────
+function Notebook({ stories, notes }) {
+  const { storyId } = useParams();
+  const navigate = useNavigate();
+  const [filter, setFilter] = useState("all");
+  const story = stories.find(s => s.id === storyId);
+
+  const notebookNotes = notes
+    .filter(n => n.story_id === storyId)
+    .filter(n => filter === "all" || n.type === filter);
+
+  if (stories.length > 0 && !story) return <Navigate to="/" replace />;
+
+  return (
+    <>
+      <div className="header">
+        <div>
+          <button className="header-back" onClick={() => navigate("/")}>← All stories</button>
+          <div className="header-title">{story?.name}</div>
+        </div>
+        <button className="header-action" onClick={() => navigate(`/story/${storyId}/note/new`)}>+ Add note</button>
+      </div>
+
+      <div className="notebook-filters">
+        {["all", ...NOTE_TYPES.map(t => t.id)].map(f => (
+          <button key={f} className={`filter-chip ${filter === f ? "active" : ""}`}
+            style={filter === f ? { background: f === "all" ? "var(--accent)" : typeColor(f), borderColor: "transparent" } : {}}
+            onClick={() => setFilter(f)}>
+            {f === "all" ? "All" : typeLabel(f)}
+          </button>
+        ))}
+      </div>
+
+      {notebookNotes.length === 0 ? (
+        <div className="notebook-empty">
+          <p>{filter === "all" ? "No notes yet. Tap + Add note to start." : `No ${typeLabel(filter).toLowerCase()} notes yet.`}</p>
+        </div>
+      ) : (
+        <div className="notes-list">
+          {notebookNotes.map(note => (
+            <div key={note.id} className="note-card" onClick={() => navigate(`/story/${storyId}/note/${note.id}`)}>
+              <div className="note-card-strip" style={{ background: typeColor(note.type) }} />
+              <div className="note-card-body">
+                <div className="note-card-top">
+                  <span className="note-type-badge" style={{ color: typeColor(note.type) }}>{typeLabel(note.type)}</span>
+                  <span className="note-time">{timeAgo(note.updated_at)}</span>
+                </div>
+                {note.title && <div className="note-card-title">{note.title}</div>}
+                {note.body && <div className="note-card-preview">{note.body}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Editor ────────────────────────────────────────────────────────────────────
+function Editor({ session, stories, notes, saveNote, deleteNote, isCapture = false }) {
+  const { storyId, noteId } = useParams();
+  const navigate = useNavigate();
+  const existingNote = noteId && noteId !== "new" ? notes.find(n => n.id === noteId) : null;
+
+  const [title, setTitle] = useState(existingNote?.title ?? "");
+  const [body, setBody] = useState(existingNote?.body ?? "");
+  const [type, setType] = useState(existingNote?.type ?? "idea");
+  const [selectedStoryId, setSelectedStoryId] = useState(existingNote?.story_id ?? storyId ?? stories[0]?.id ?? null);
   const [saved, setSaved] = useState(true);
+  const [currentNoteId, setCurrentNoteId] = useState(existingNote?.id ?? null);
   const saveTimer = useRef(null);
 
-  // ── Auth listener ──
+  // Update state if note loads after mount
+  useEffect(() => {
+    if (existingNote) {
+      setTitle(existingNote.title ?? "");
+      setBody(existingNote.body ?? "");
+      setType(existingNote.type ?? "idea");
+      setSelectedStoryId(existingNote.story_id);
+      setCurrentNoteId(existingNote.id);
+    }
+  }, [existingNote?.id]);
+
+  const story = stories.find(s => s.id === (existingNote?.story_id ?? storyId));
+
+  function handleChange(field, val) {
+    if (field === "title") setTitle(val);
+    if (field === "body") setBody(val);
+    if (field === "type") setType(val);
+    setSaved(false);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => doSave(false, field === "title" ? (field === "title" ? val : title) : title, field === "body" ? val : body, field === "type" ? val : type), 1500);
+  }
+
+  async function doSave(navigateBack = true, t = title, b = body, tp = type) {
+    clearTimeout(saveTimer.current);
+    if (!t.trim() && !b.trim()) {
+      if (navigateBack) navigate(isCapture ? "/" : `/story/${storyId}`);
+      return;
+    }
+    const data = await saveNote({ id: currentNoteId, storyId: selectedStoryId, title: t.trim(), body: b.trim(), type: tp, userId: session.user.id });
+    if (data && !currentNoteId) setCurrentNoteId(data.id);
+    setSaved(true);
+    if (navigateBack) navigate(isCapture ? "/" : `/story/${storyId}`);
+  }
+
+  async function handleDelete() {
+    if (!currentNoteId) { navigate(isCapture ? "/" : `/story/${storyId}`); return; }
+    if (!window.confirm("Delete this note?")) return;
+    await deleteNote(currentNoteId);
+    navigate(isCapture ? "/" : `/story/${storyId}`);
+  }
+
+  return (
+    <>
+      <div className="header">
+        <div>
+          <button className="header-back" onClick={() => { doSave(false); navigate(isCapture ? "/" : `/story/${storyId}`); }}>
+            ← {isCapture ? "Stories" : story?.name ?? "Notebook"}
+          </button>
+          <div className="header-title" style={{ fontSize: 16 }}>{currentNoteId ? "Edit note" : "New note"}</div>
+        </div>
+      </div>
+
+      {isCapture && (
+        <div className="story-picker">
+          <label>Story</label>
+          {stories.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--muted)", padding: "8px 0" }}>
+              No stories yet — <span style={{ color: "var(--accent)", cursor: "pointer" }} onClick={() => navigate("/")}>create one first</span>
+            </div>
+          ) : (
+            <select value={selectedStoryId ?? ""} onChange={e => setSelectedStoryId(e.target.value)}>
+              {stories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+
+      <div className="editor-wrap">
+        <div className="editor-type-row">
+          {NOTE_TYPES.map(t => (
+            <button key={t.id} className={`type-chip ${type === t.id ? "selected" : ""}`}
+              style={type === t.id ? { background: t.color + "22", borderColor: t.color, color: t.color } : {}}
+              onClick={() => handleChange("type", t.id)}>{t.label}</button>
+          ))}
+        </div>
+        <textarea className="editor-title-input" placeholder="Title (optional)" value={title}
+          onChange={e => handleChange("title", e.target.value)} rows={1}
+          style={{ height: "auto", overflow: "hidden" }}
+          onInput={e => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} />
+        <div className="editor-divider" />
+        <textarea className="editor-body-input" placeholder="Write your idea, scene, character note, reminder… anything."
+          value={body} onChange={e => handleChange("body", e.target.value)} autoFocus />
+        <div className="editor-footer">
+          <button className="editor-delete" onClick={handleDelete}>{currentNoteId ? "Delete note" : "Discard"}</button>
+          <span className="editor-autosave">{saved ? "Saved" : "Saving…"}</span>
+          <button className="editor-save" onClick={() => doSave(true)}>Save note</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [session, setSession] = useState(undefined);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Load data when authed ──
-  useEffect(() => {
-    if (!session) return;
-    loadStories();
-    loadNotes();
-  }, [session]);
+  const { stories, notes, createStory, saveNote, deleteNote } = useData(session);
 
-  async function loadStories() {
-    const { data } = await supabase.from("stories").select("*").order("created_at", { ascending: false });
-    if (data) setStories(data);
-  }
-
-  async function loadNotes() {
-    const { data } = await supabase.from("notes").select("*").order("updated_at", { ascending: false });
-    if (data) setNotes(data);
-  }
-
-  // ── Story actions ──
-  async function createStory(name) {
-    const { data, error } = await supabase.from("stories").insert({ name: name.trim(), user_id: session.user.id }).select().single();
-    if (!error && data) {
-      setStories(prev => [data, ...prev]);
-      return data.id;
-    }
-  }
-
-  function openNotebook(storyId) {
-    setActiveStoryId(storyId);
-    setFilter("all");
-    setView("notebook");
-  }
-
-  // ── Note actions ──
-  function openNewNote(storyId) {
-    setActiveNoteId(null);
-    setEditorTitle(""); setEditorBody(""); setEditorType("idea");
-    setEditorStoryId(storyId || activeStoryId);
-    setSaved(true);
-    setView("editor");
-  }
-
-  function openNote(note) {
-    setActiveNoteId(note.id);
-    setEditorTitle(note.title || ""); setEditorBody(note.body || ""); setEditorType(note.type || "idea");
-    setEditorStoryId(note.story_id);
-    setSaved(true);
-    setView("editor");
-  }
-
-  function handleEditorChange(field, val) {
-    if (field === "title") setEditorTitle(val);
-    if (field === "body") setEditorBody(val);
-    if (field === "type") setEditorType(val);
-    setSaved(false);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveNote(false), 1500);
-  }
-
-  async function saveNote(navigateBack = true) {
-    clearTimeout(saveTimer.current);
-    const body = editorBody.trim();
-    const title = editorTitle.trim();
-    if (!body && !title) {
-      if (navigateBack) { setActiveStoryId(editorStoryId); setView(activeStoryId ? "notebook" : "dashboard"); }
-      return;
-    }
-    const now = new Date().toISOString();
-    if (activeNoteId) {
-      const { data } = await supabase.from("notes").update({ title, body, type: editorType, updated_at: now }).eq("id", activeNoteId).select().single();
-      if (data) setNotes(prev => prev.map(n => n.id === activeNoteId ? data : n));
-    } else {
-      const { data } = await supabase.from("notes").insert({ story_id: editorStoryId, title, body, type: editorType, user_id: session.user.id }).select().single();
-      if (data) { setActiveNoteId(data.id); setNotes(prev => [data, ...prev]); }
-    }
-    setSaved(true);
-    if (navigateBack) { setActiveStoryId(editorStoryId); setView("notebook"); }
-  }
-
-  async function deleteNote() {
-    if (!activeNoteId) { setView("notebook"); return; }
-    if (!window.confirm("Delete this note?")) return;
-    await supabase.from("notes").delete().eq("id", activeNoteId);
-    setNotes(prev => prev.filter(n => n.id !== activeNoteId));
-    setView("notebook");
-  }
-
-  function openCapture() {
-    setActiveNoteId(null);
-    setEditorTitle(""); setEditorBody(""); setEditorType("idea");
-    setEditorStoryId(stories[0]?.id ?? null);
-    setSaved(true);
-    setView("capture");
-  }
-
-  // ── Derived ──
-  const activeStory = stories.find(s => s.id === activeStoryId);
-  const notebookNotes = notes
-    .filter(n => n.story_id === activeStoryId)
-    .filter(n => filter === "all" || n.type === filter);
-  const storyNoteCounts = Object.fromEntries(stories.map(s => [s.id, notes.filter(n => n.story_id === s.id).length]));
-
-  // ── Loading / Auth gates ──
   if (session === undefined) return <><style>{css}</style><div className="app"><div className="loading">Loading…</div></div></>;
   if (!session) return <><style>{css}</style><div className="app"><AuthScreen /></div></>;
+
+  const shared = { session, stories, notes, saveNote, deleteNote };
 
   return (
     <>
       <style>{css}</style>
       <div className="app">
-
-        {/* DASHBOARD */}
-        {view === "dashboard" && (<>
-          <div className="header">
-            <div>
-              <div className="header-title">Waypoint</div>
-              <div className="header-subtitle">{stories.length === 0 ? "Your stories start here" : `${stories.length} notebook${stories.length !== 1 ? "s" : ""}`}</div>
-            </div>
-            <div className="header-actions">
-              <button className="header-action ghost" onClick={openCapture}>+ Quick note</button>
-              <button className="header-action" onClick={() => setShowNewStory(true)}>New story</button>
-              <button className="header-action ghost" style={{ padding: "8px 10px" }} title="Sign out" onClick={() => supabase.auth.signOut()}>↩</button>
-            </div>
-          </div>
-          {stories.length === 0 ? (
-            <div className="dashboard-empty">
-              <div className="dashboard-empty-icon">📓</div>
-              <h2>No notebooks yet</h2>
-              <p>Create a story to start collecting ideas, scenes, characters, and more.</p>
-              <button className="header-action" style={{ marginTop: 8 }} onClick={() => setShowNewStory(true)}>Create your first story</button>
-            </div>
-          ) : (
-            <div className="stories-grid">
-              {stories.map(story => {
-                const lastNote = notes.filter(n => n.story_id === story.id).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
-                return (
-                  <div key={story.id} className="story-card" onClick={() => openNotebook(story.id)}>
-                    <div className="story-card-title">{story.name}</div>
-                    <div className="story-card-meta">
-                      <span className="story-card-count">{storyNoteCounts[story.id] || 0} note{storyNoteCounts[story.id] !== 1 ? "s" : ""}</span>
-                      {lastNote && <span>{timeAgo(lastNote.updated_at)}</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>)}
-
-        {/* NOTEBOOK */}
-        {view === "notebook" && (<>
-          <div className="header">
-            <div>
-              <button className="header-back" onClick={() => setView("dashboard")}>← All stories</button>
-              <div className="header-title">{activeStory?.name}</div>
-            </div>
-            <button className="header-action" onClick={() => openNewNote(activeStoryId)}>+ Add note</button>
-          </div>
-          <div className="notebook-filters">
-            {["all", ...NOTE_TYPES.map(t => t.id)].map(f => (
-              <button key={f} className={`filter-chip ${filter === f ? "active" : ""}`}
-                style={filter === f ? { background: f === "all" ? "var(--accent)" : typeColor(f), borderColor: "transparent" } : {}}
-                onClick={() => setFilter(f)}>
-                {f === "all" ? "All" : typeLabel(f)}
-              </button>
-            ))}
-          </div>
-          {notebookNotes.length === 0 ? (
-            <div className="notebook-empty"><p>{filter === "all" ? "No notes yet. Tap + Add note to start." : `No ${typeLabel(filter).toLowerCase()} notes yet.`}</p></div>
-          ) : (
-            <div className="notes-list">
-              {notebookNotes.map(note => (
-                <div key={note.id} className="note-card" onClick={() => openNote(note)}>
-                  <div className="note-card-strip" style={{ background: typeColor(note.type) }} />
-                  <div className="note-card-body">
-                    <div className="note-card-top">
-                      <span className="note-type-badge" style={{ color: typeColor(note.type) }}>{typeLabel(note.type)}</span>
-                      <span className="note-time">{timeAgo(note.updated_at)}</span>
-                    </div>
-                    {note.title && <div className="note-card-title">{note.title}</div>}
-                    {note.body && <div className="note-card-preview">{note.body}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>)}
-
-        {/* EDITOR / CAPTURE */}
-        {(view === "editor" || view === "capture") && (<>
-          <div className="header">
-            <div>
-              <button className="header-back" onClick={() => { saveNote(false); setView(view === "capture" ? "dashboard" : "notebook"); }}>
-                ← {view === "capture" ? "Stories" : activeStory?.name ?? "Notebook"}
-              </button>
-              <div className="header-title" style={{ fontSize: 16 }}>{activeNoteId ? "Edit note" : "New note"}</div>
-            </div>
-          </div>
-          {view === "capture" && (
-            <div className="story-picker">
-              <label>Story</label>
-              {stories.length === 0 ? (
-                <div style={{ fontSize: 13, color: "var(--muted)", padding: "8px 0" }}>
-                  No stories yet — <span style={{ color: "var(--accent)", cursor: "pointer" }} onClick={() => setShowNewStory(true)}>create one first</span>
-                </div>
-              ) : (
-                <select value={editorStoryId ?? ""} onChange={e => setEditorStoryId(e.target.value)}>
-                  {stories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              )}
-            </div>
-          )}
-          <div className="editor-wrap">
-            <div className="editor-type-row">
-              {NOTE_TYPES.map(t => (
-                <button key={t.id} className={`type-chip ${editorType === t.id ? "selected" : ""}`}
-                  style={editorType === t.id ? { background: t.color + "22", borderColor: t.color, color: t.color } : {}}
-                  onClick={() => handleEditorChange("type", t.id)}>{t.label}</button>
-              ))}
-            </div>
-            <textarea className="editor-title-input" placeholder="Title (optional)" value={editorTitle}
-              onChange={e => handleEditorChange("title", e.target.value)} rows={1}
-              style={{ height: "auto", overflow: "hidden" }}
-              onInput={e => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} />
-            <div className="editor-divider" />
-            <textarea className="editor-body-input" placeholder="Write your idea, scene, character note, reminder… anything."
-              value={editorBody} onChange={e => handleEditorChange("body", e.target.value)} autoFocus />
-            <div className="editor-footer">
-              <button className="editor-delete" onClick={deleteNote}>{activeNoteId ? "Delete note" : "Discard"}</button>
-              <span className="editor-autosave">{saved ? "Saved" : "Saving…"}</span>
-              <button className="editor-save" onClick={() => saveNote(true)}>Save note</button>
-            </div>
-          </div>
-        </>)}
-
-        {/* NEW STORY MODAL */}
-        {showNewStory && (
-          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowNewStory(false); }}>
-            <div className="modal">
-              <h2>New story</h2>
-              <input className="modal-input" placeholder="Give it a working title…" value={newStoryName} autoFocus
-                onChange={e => setNewStoryName(e.target.value)}
-                onKeyDown={async e => {
-                  if (e.key === "Enter" && newStoryName.trim()) {
-                    const id = await createStory(newStoryName); setNewStoryName(""); setShowNewStory(false); if (id) openNotebook(id);
-                  }
-                  if (e.key === "Escape") setShowNewStory(false);
-                }} />
-              <div className="modal-actions">
-                <button className="modal-cancel" onClick={() => { setShowNewStory(false); setNewStoryName(""); }}>Cancel</button>
-                <button className="modal-confirm" disabled={!newStoryName.trim()} onClick={async () => {
-                  const id = await createStory(newStoryName); setNewStoryName(""); setShowNewStory(false); if (id) openNotebook(id);
-                }}>Create notebook</button>
-              </div>
-            </div>
-          </div>
-        )}
-
+        <Routes>
+          <Route path="/" element={<Dashboard {...shared} createStory={createStory} />} />
+          <Route path="/story/:storyId" element={<Notebook {...shared} />} />
+          <Route path="/story/:storyId/note/:noteId" element={<Editor {...shared} />} />
+          <Route path="/capture" element={<Editor {...shared} isCapture />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </>
   );

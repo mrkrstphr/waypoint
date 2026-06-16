@@ -2,9 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/waypoint/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>waypoint</title>
+    <title>Waypoint</title>
+    <script>
+      // Restore path encoded by 404.html
+      (function() {
+        var query = window.location.search.slice(1);
+        var params = {};
+        query.replace(/([^=&]+)=([^&]*)/g, function(_, k, v) { params[k] = decodeURIComponent(v); });
+        if (params.p && params.p !== '/') {
+          window.history.replaceState(null, null, '/waypoint' + params.p + (params.q ? '?' + params.q : ''));
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

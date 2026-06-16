@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script>
+      // GitHub Pages 404 redirect trick for SPAs
+      // Encodes the path into a query string, index.html picks it up and restores it
+      var path = window.location.pathname.replace('/waypoint', '') || '/';
+      window.location.replace(
+        '/waypoint/?p=' + encodeURIComponent(path) +
+        (window.location.search ? '&q=' + encodeURIComponent(window.location.search.slice(1)) : '') +
+        window.location.hash
+      );
+    </script>
+  </head>
+</html>
