@@ -110,7 +110,7 @@ const css = `
   .editor-divider { height: 1px; background: var(--border); margin: 0 20px; }
   .editor-body-input { background: none; border: none; outline: none; font-family: var(--font-ui); font-size: 16px; line-height: 1.7; color: var(--text); padding: 16px 20px; width: 100%; flex: 1; resize: none; min-height: 280px; }
   .editor-body-input::placeholder { color: var(--muted); opacity: .5; }
-  .editor-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .editor-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; bottom: 0; background: var(--bg); z-index: 10; }
   .editor-save { background: var(--accent); color: var(--cream); border: none; border-radius: 8px; padding: 10px 24px; font-family: var(--font-ui); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
   .editor-save:hover { background: var(--accent-hi); }
   .editor-delete { background: none; border: none; color: var(--muted); font-family: var(--font-ui); font-size: 13px; cursor: pointer; padding: 10px 0; transition: color .15s; }
