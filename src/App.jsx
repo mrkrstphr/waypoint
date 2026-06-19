@@ -146,26 +146,41 @@ const css = `
 
 // ── Auth Screen ───────────────────────────────────────────────────────────────
 function AuthScreen() {
-  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [sent, setSent] = useState(false);
 
   async function handleSubmit() {
-    setError(""); setMessage("");
-    if (!email || !password) { setError("Email and password are required."); return; }
+    setError("");
+    if (!email) { setError("Enter your email."); return; }
     setLoading(true);
-    if (mode === "signup") {
-      const { error: e } = await supabase.auth.signUp({ email, password });
-      if (e) setError(e.message);
-      else setMessage("Check your email to confirm your account.");
-    } else {
-      const { error: e } = await supabase.auth.signInWithPassword({ email, password });
-      if (e) setError(e.message);
-    }
+    const { error: e } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin + "/waypoint/" },
+    });
+    if (e) setError(e.message);
+    else setSent(true);
     setLoading(false);
+  }
+
+  if (sent) {
+    return (
+      <div className="auth-wrap">
+        <div className="auth-logo">Waypoint</div>
+        <div className="auth-sub">Your story notebooks, everywhere.</div>
+        <div className="auth-card" style={{ textAlign: "center" }}>
+          <h2>Check your email</h2>
+          <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.6 }}>
+            We sent a sign-in link to <strong style={{ color: "var(--text)" }}>{email}</strong>.
+            Tap it on this device to sign in.
+          </p>
+          <div className="auth-toggle" style={{ marginTop: 18 }}>
+            <span onClick={() => setSent(false)}>Use a different email</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -173,20 +188,15 @@ function AuthScreen() {
       <div className="auth-logo">Waypoint</div>
       <div className="auth-sub">Your story notebooks, everywhere.</div>
       <div className="auth-card">
-        <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
+        <h2>Sign in</h2>
         <input className="auth-input" type="email" placeholder="Email" value={email}
-          onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
-        <input className="auth-input" type="password" placeholder="Password" value={password}
-          onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+          onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} autoFocus />
         {error && <div className="auth-error">{error}</div>}
-        {message && <div style={{ fontSize: 13, color: "#4A7C6F", marginTop: 8, textAlign: "center" }}>{message}</div>}
         <button className="auth-btn" onClick={handleSubmit} disabled={loading}>
-          {loading ? "…" : mode === "login" ? "Sign in" : "Create account"}
+          {loading ? "…" : "Send magic link"}
         </button>
-        <div className="auth-toggle">
-          {mode === "login"
-            ? <>No account? <span onClick={() => { setMode("signup"); setError(""); }}>Sign up</span></>
-            : <>Have an account? <span onClick={() => { setMode("login"); setError(""); }}>Sign in</span></>}
+        <div className="auth-toggle" style={{ marginTop: 14 }}>
+          No account needed — we'll create one automatically.
         </div>
       </div>
     </div>
